@@ -48,14 +48,34 @@ ENTRY
     series
     title
     type
-    url
     volume
     word
     year
+    eprint % urlbst
+    doi % urlbst
+    url % urlbst
+    lastchecked % urlbst
+    updated % urlbst
   }
   {}
   { label extra.label sort.label short.list }
 INTEGERS { output.state before.all mid.sentence after.sentence after.block }
+STRINGS { urlintro eprinturl eprintprefix doiprefix doiurl } % urlbst...
+INTEGERS { hrefform addeprints adddoiresolver }
+% Following constants may be adjusted by hand, if desired
+
+FUNCTION {init.config.constants}
+{
+  "Available from: " 'urlintro := % prefix before URL
+  "http://arxiv.org/abs/" 'eprinturl := % prefix to make URL from eprint ref
+  "arXiv:" 'eprintprefix := % text prefix printed before eprint ref
+  "http://dx.doi.org/" 'doiurl := % prefix to make URL from DOI
+  "doi:" 'doiprefix := % text prefix printed before DOI ref
+  #0 'addeprints := % 0=no eprints; 1=include eprints
+  #1 'adddoiresolver := % 0=no DOI resolver; 1=include it
+  #0 'hrefform := % 0=no crossrefs; 1=hypertex xrefs; 2=hyperref refs
+}
+
 FUNCTION {init.state.consts}
 { #0 'before.all :=
   #1 'mid.sentence :=
@@ -67,7 +87,7 @@ STRINGS { s t}
 FUNCTION {output.nonnull}
 { 's :=
   output.state mid.sentence =
-    { ", " * write$ }
+    { ". " * write$ }
     { output.state after.block =
         { add.period$ write$
           newline$
@@ -75,7 +95,7 @@ FUNCTION {output.nonnull}
         }
         { output.state before.all =
             'write$
-            {  " " * write$ }
+            { add.period$ " " * write$ }
           if$
         }
       if$
@@ -1005,10 +1025,64 @@ FUNCTION {format.number.series}
   if$
 }
 
+
+FUNCTION {is.num}
+{ chr.to.int$
+  duplicate$ "0" chr.to.int$ < not
+  swap$ "9" chr.to.int$ > not and
+}
+
+FUNCTION {extract.num}
+{ duplicate$ 't :=
+  "" 's :=
+  { t empty$ not }
+  { t #1 #1 substring$
+    t #2 global.max$ substring$ 't :=
+    duplicate$ is.num
+      { s swap$ * 's := }
+      { pop$ "" 't := }
+    if$
+  }
+  while$
+  s empty$
+    'skip$
+    { pop$ s }
+  if$
+}
+
+FUNCTION {convert.edition}
+{ extract.num "l" change.case$ 's :=
+  s "first" = s "1" = or
+    { bbl.first 't := }
+    { s "second" = s "2" = or
+        { bbl.second 't := }
+        { s "third" = s "3" = or
+            { bbl.third 't := }
+            { s "fourth" = s "4" = or
+                { bbl.fourth 't := }
+                { s "fifth" = s "5" = or
+                    { bbl.fifth 't := }
+                    { s #1 #1 substring$ is.num
+                        { s eng.ord 't := }
+                        { edition 't := }
+                      if$
+                    }
+                  if$
+                }
+              if$
+            }
+          if$
+        }
+      if$
+    }
+  if$
+  t
+}
+
 FUNCTION {format.edition}
 { edition duplicate$ empty$ 'skip$
     {
-%      convert.edition
+      convert.edition
       output.state mid.sentence =
         { "l" }
         { "t" }
@@ -1179,7 +1253,7 @@ FUNCTION {format.chapter.pages}
 	    'skip$
 	  if$
 	}
-FUNCTION {format.thesis.type}
+	FUNCTION {format.thesis.type}
 	{ type duplicate$ empty$
 	    'pop$
 	    { swap$ pop$
@@ -1232,28 +1306,182 @@ FUNCTION {format.organization.address}
 FUNCTION {format.institution.address}
 { institution "institution" bibinfo.check format.org.or.pub
 }
-FUNCTION {format.article.crossref}
+
+
+% urlbst...
+% Functions for making hypertext links.
+% In all cases, the stack has (link-text href-url)
+%
+% make 'null' specials
+FUNCTION {make.href.null}
 {
-  word.in
-  " \cite{" * crossref * "}" *
+  pop$
 }
-FUNCTION {format.book.crossref}
-{ volume duplicate$ empty$
-    { "empty volume in " cite$ * "'s crossref of " * crossref * warning$
-      pop$ word.in
-    }
-    { bbl.volume
-      capitalize
-      swap$ tie.or.space.prefix "volume" bibinfo.check * * bbl.of space.word *
+% make hypertex specials
+FUNCTION {make.href.hypertex}
+{ 
+  "\special {html:<a href=" quote$ *
+  swap$ * quote$ * "> }" * swap$ *
+  "\special {html:</a>}" *
+}
+% make hyperref specials
+FUNCTION {make.href.hyperref}
+{ 
+  "\href {" swap$ * "} {" * swap$ * "}" *
+}
+FUNCTION {make.href}
+{ hrefform #2 =
+    'make.href.hyperref      % hrefform = 2
+    { hrefform #1 =
+        'make.href.hypertex  % hrefform = 1
+        'make.href.null      % hrefform = 0 (or anything else)
+      if$
     }
   if$
-  " \cite{" * crossref * "}" *
 }
-FUNCTION {format.incoll.inproc.crossref}
+
+FUNCTION {format.url}
+{ url empty$
+    { "" }
+      { hrefform #1 =
+          { % special case -- add HyperTeX specials
+            urlintro "\url{" url * "}" * url make.href.hypertex * }
+          { urlintro "\url{" * url * "}" * }
+       if$
+     }
+  if$
+}
+
+FUNCTION {format.eprint}
+{ eprint empty$
+    { "" }
+    { eprintprefix eprint * eprinturl eprint * make.href }
+  if$
+}
+
+FUNCTION {format.doi}
+{ doi empty$
+    { "" }
+    { doiprefix doi * doiurl doi * make.href }
+  if$
+}
+
+% Output a URL.  We can't use the more normal idiom (something like
+% `format.url output'), because the `inbrackets' within
+% format.lastchecked applies to everything between calls to `output',
+% so that `format.url format.lastchecked * output' ends up with both
+% the URL and the lastchecked in brackets.
+FUNCTION {output.url}
+{ url empty$
+    'skip$ 
+    { new.block 
+      format.url output
+      format.lastchecked output 
+    }
+  if$
+}
+
+FUNCTION {output.web.refs}
 {
-  word.in
-  " \cite{" * crossref * "}" *
+  new.block
+  output.url
+  addeprints eprint empty$ not and
+    { format.eprint output.nonnull }
+    'skip$
+  if$
+  adddoiresolver doi empty$ not and
+    { format.doi output.nonnull }
+    'skip$
+  if$
+%  addeprints
+%    { eprint empty$
+%        'skip$
+%        { format.eprint output.nonnull }
+%      if$
+%    }
+%    'skip$
+%  if$
 }
+
+% Webpage entry type.
+% Title and url fields required;
+% author, note, year, month, and lastchecked fields optional
+STRINGS {database}
+FUNCTION {webpage}
+{ output.bibitem
+  author empty$
+    { editor empty$
+        'skip$  % author and editor both optional
+        { format.editors output.nonnull }
+      if$
+    }
+    { editor empty$
+        { format.authors output.nonnull }
+        { "can't use both author and editor fields in " cite$ * warning$ }
+      if$
+    }
+  if$
+%  author empty$
+%    'skip$
+%    { format.authors output.nonnull }
+%  if$
+  new.block
+  format.title "title" output.check
+  journal empty$
+    {
+      format.type "type" output.check
+      publisher empty$
+        'skip$
+        { format.publisher.address output }
+      if$
+      "database on the Internet" 'database :=
+      type database =
+        { format.journal.date "year" output.check }
+        { format.date "year" output.check }
+      if$
+      lastchecked empty$
+        'skip$
+        { format.lastchecked output }
+      if$
+      new.block
+      part empty$
+        'skip$
+        { part output }
+      if$
+      pages empty$
+        'skip$
+        { pages bracket.check output }
+      if$
+    }
+    { journal
+      remove.dots
+      "journal" bibinfo.check
+      "journal" output.check
+      format.type "type" output.check
+      format.journal.date "year" output.check
+      lastchecked empty$
+        'skip$
+        { format.lastchecked output
+	  ";" no.blank.or.punct output
+	}
+      if$
+      no.blank.or.punct format.vol.num output
+      pages empty$
+        'skip$
+	{ ":" no.blank.or.punct output
+	  no.blank.or.punct pages bracket.check output
+	}
+      if$
+      new.block
+    }
+  if$
+  format.url "url" output.check
+  new.block
+  note output
+  fin.entry
+}
+% ...urlbst to here
+
 FUNCTION {misc}
 { output.bibitem
   format.authors "author" output.check
@@ -1261,11 +1489,9 @@ FUNCTION {misc}
   format.title "title" output.check
   type missing$
     { skip$ }
-%    { format.type "type" output.check }
-    { "type" output.check }    
+    { format.type "type" output.check }
     %%{ inbrackets type output }
   if$
-  new.block
   format.publisher.address output
   format.date "year" output.check
   new.block
@@ -1273,7 +1499,7 @@ FUNCTION {misc}
   new.block
   howpublished new.block.checka
   howpublished "howpublished" bibinfo.check output
-%  output.web.refs  % urlbst
+  output.web.refs  % urlbst
   fin.entry
   empty.misc.check
 }
@@ -1299,7 +1525,7 @@ FUNCTION {article}
   format.title "title" output.check
   type missing$
     { skip$ }
-    { "type" output.check }
+    { format.type "type" output.check }
   if$
   new.block
   journal
@@ -1311,7 +1537,7 @@ FUNCTION {article}
   format.vol.num.pages output
   new.block
   format.note output
-%  output.web.refs  % urlbst
+  output.web.refs  % urlbst
   fin.entry
 }
 
@@ -1344,9 +1570,10 @@ FUNCTION {book}
   format.date "year" output.check
   new.block
   format.note output
-%  output.web.refs  % urlbst
+  output.web.refs  % urlbst
   fin.entry
 }
+
 FUNCTION {booklet}
 { misc }
 
@@ -1365,7 +1592,7 @@ FUNCTION {dictionary}
   format.pages "pages" output.check
   new.block
   format.note output
-%  output.web.refs  % urlbst
+  output.web.refs  % urlbst
   fin.entry
 }
 
@@ -1387,7 +1614,7 @@ FUNCTION {inbook}
   format.pages "pages" output.check
   new.block
   format.note output
-%  output.web.refs  % urlbst
+  output.web.refs  % urlbst
   fin.entry
 }
 
@@ -1405,12 +1632,14 @@ FUNCTION {incollection}
   format.publisher.address output
   format.date "year" output.check
   date.block
-%  add.blank
+  add.blank
   format.pages "pages" output.check
   new.block
   format.note output
+  output.web.refs  % urlbst
   fin.entry
 }
+
 FUNCTION {inproceedings}
 { output.bibitem
   format.authors "author" output.check
@@ -1433,62 +1662,72 @@ FUNCTION {inproceedings}
   format.pages "pages" output.check
   new.block
   format.note output
-%  output.web.refs  % urlbst
+  output.web.refs  % urlbst
   fin.entry
 }
-FUNCTION {conference} { inproceedings }
+
+FUNCTION {conference}
+{inproceedings}
+
 FUNCTION {manual}
-{ output.bibitem
-  format.authors output
-  author format.key output
-%  add.colon
-  new.block
-  format.btitle "title" output.check
-  organization address new.block.checkb
-  organization "organization" bibinfo.check output
-  address "address" bibinfo.check output
-  format.edition output
-  format.date "year" output.check
-  % new.block       ++++ REMOVED (to get comma before note)
-  format.note output
-  fin.entry
-}
+{misc}
 
 FUNCTION {phdthesis}
 { output.bibitem
   format.authors "author" output.check
   new.block
-  format.btitle "title" output.check
+  format.btitle
+  "title" output.check
+  format.type "type" output.check
   new.block
-  "PhD thesis" format.thesis.type output.nonnull
   school "school" bibinfo.warn output
-%  address "address" bibinfo.check output
+  address "address" bibinfo.check output
   format.date "year" output.check
-%  new.block
-%  format.note output
-%  output.web.refs  % urlbst
+  new.block
+  format.note output
+  output.web.refs  % urlbst
   fin.entry
 }
 
+FUNCTION {mastersthesis}
+{phdthesis}
+
 FUNCTION {proceedings}
 { output.bibitem
-  format.editors output
-  editor format.key output
-%  add.colon
+  editor empty$
+    { organization "organization" bibinfo.check output
+    }
+    { format.editors output.nonnull }
+  if$
   new.block
   format.btitle "title" output.check
   format.bvolume output
-  new.sentence
-  format.number.series output
-  publisher empty$
-    { format.organization.address output }
-    { organization "organization" bibinfo.check output
-      format.publisher.address output
+  editor empty$
+    { publisher empty$
+        'skip$
+        {
+          new.sentence
+          format.number.series output
+          format.publisher.address output
+        }
+      if$
     }
+    { publisher empty$
+        {
+          new.sentence
+          format.organization.address output }
+        {
+          new.sentence
+          organization "organization" bibinfo.check output
+          format.publisher.address output
+        }
+      if$
+     }
   if$
-  format.date "year" output.check
-  % new.block       ++++ REMOVED (to get comma before note)
+      format.date "year" output.check
+  new.block
   format.note output
+  output.web.refs  % urlbst
   fin.entry
 }
 
@@ -1501,28 +1740,63 @@ FUNCTION {techreport}
   new.block
   format.institution.address output
   format.date "year" output.check
-%  format.tr.number output.nonnull
-%  new.block
-%  format.note output
-%  output.web.refs  % urlbst
+  format.tr.number output.nonnull
+  new.block
+  format.note output
+  output.web.refs  % urlbst
+  fin.entry
+}
+
+FUNCTION {map}
+{ output.bibitem
+  format.cartographers "cartographer" output.check
+  new.block
+  format.title
+  "title" output.check
+  format.type "type" output.check
+  new.block
+  format.publisher.address output
+  format.date "year" output.check
+  new.block
+  format.note output
+  output.web.refs  % urlbst
+  fin.entry
+}
+
+FUNCTION {patent}
+{ output.bibitem
+  format.inventors "inventor" output.check
+  "; " *
+  no.blank.or.punct
+  format.assignees "assignee" output.check
+  new.block
+  format.title
+  "title" output.check
+  new.block
+  format.tr.number output.nonnull
+  format.date "year" output.check
+  new.block
+  format.note output
+  output.web.refs  % urlbst
   fin.entry
 }
 
 FUNCTION {unpublished}
 { output.bibitem
   format.authors "author" output.check
-  author format.key output
-%  add.colon
   new.block
   format.title "title" output.check
-  format.date "year" output.check
-  % new.block       ++++ REMOVED (to get comma before note)
+  format.date output
+  new.block
   format.note "note" output.check
+  output.web.refs  % urlbst
   fin.entry
 }
 
 FUNCTION {default.type} { misc }
+
 READ
+
 FUNCTION {sortify}
 { purify$
   "l" change.case$
@@ -1729,7 +2003,7 @@ FUNCTION {presort}
 }
 
 ITERATE {presort}
-SORT
+%SORT
 STRINGS { last.label next.extra }
 INTEGERS { last.extra.num number.label }
 FUNCTION {initialize.extra.label.stuff}
@@ -1782,7 +2056,7 @@ FUNCTION {bib.sort.order}
   'sort.key$ :=
 }
 ITERATE {bib.sort.order}
-SORT
+%SORT
 FUNCTION {begin.bib}
 { preamble$ empty$
     'skip$
@@ -1799,6 +2073,7 @@ FUNCTION {begin.bib}
   write$ newline$
 }
 EXECUTE {begin.bib}
+EXECUTE {init.config.constants}
 EXECUTE {init.state.consts}
 ITERATE {call.type$}
 FUNCTION {end.bib}
