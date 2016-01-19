@@ -2,8 +2,8 @@
 %%
 %% Use
 %%
-%% \usepackage{natbib}
-%% \bibliographystyle{vancouver-compatible}
+%% \usepackage[numbers,sort]{natbib}
+%% \bibliographystyle{vancouver-authoryear}
 %%
 %% and cite references with (e.g.)
 %%
@@ -18,7 +18,8 @@
 %% Unfortunately, splncs03.bst was not compatible with natbib (because it
 %% was not built with author-year capability).
 %%
-%% This is derived from `splncsnat.bst',
+%% This is derived from `splncsnat.bst, vancouver.bst, and 
+%% vancouver-authoryear.bst (original version by Gaurav Bhutani)'.
 %---------------------------------------------------------------------
 
 ENTRY
@@ -2083,4 +2084,4 @@ FUNCTION {end.bib}
 EXECUTE {end.bib}
 %% End of customized bst file
 %%
-%% End of file `splncsnat.bst'.
+%% End of file `vancouver-authoryear.bst'.
