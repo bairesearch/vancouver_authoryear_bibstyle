@@ -11,17 +11,76 @@
 %% \citep{smith77}      % to get a "[1]" in the text
 %% \citet{smith77}      % to get a "Smith [1]" in the text
 %% \citeauthor{smith77} % to get a "Smith" in the text
+%% \citeyear{smith77}   % to get a "1977" in the text
 %%
 %% The changes below are inspired by similar changes made to
 %% splncs03.bst by Maurizio "Titto" Patrignani of
 %% Dipartimento di Informatica e Automazione Universita' Roma Tre.
-%% Unfortunately, splncs03.bst was not compatible with natbib (because it
-%% was not built with author-year capability).
 %%
 %% This is derived from `splncsnat.bst, vancouver.bst, and 
 %% vancouver-authoryear.bst (original version by Gaurav Bhutani)'.
-%---------------------------------------------------------------------
+%%
+%%-------------------------------------------------------------------
+%%
+%% This `vancouver-authoryear.bst' file is intended to 
+%% simulate the Vancouver referencing style requirements while providing 
+%% support for some commands allowing the insertion of author name/year. 
+%% 
+%% This is derived from the `vancouver.bst' bibliographic style file (for 
+%% LaTeX/BibTeX), generated with the docstrip utility and modified manually
+%% to meet the
+%% ``Uniform Requirements for Manuscripts Submitted to Biomedical Journals''
+%% as published in N Engl J Med 1997;336:309-315.
+%% (also known as the Vancouver style)
+%% This specification may be found on the web page of the
+%% International Committe of Medical Journal Editors:
+%%
+%% http://www.icmje.org
+%%
+%%-------------------------------------------------------------------
+%%
+%% Copyright 2004  Folkert van der Beek
+%%
+%% This work may be distributed and/or modified under the
+%% conditions of the LaTeX Project Public License, either version 1.3
+%% of this license or (at your option) any later version.
+%% The latest version of this license is in
+%%   http://www.latex-project.org/lppl.txt
+%% and version 1.3 or later is part of all distributions of LaTeX
+%% version 2005/12/01 or later.
+%%
+%% This work has the LPPL maintenance status `maintained'.
+%% 
+%% The Current Maintainer of this work is Folkert van der Beek.
+%%
+%% Complaints, suggestions and comments may be sent to
+%%
+%% Folkert van der Beek <folkertvanderbeek at gmail dot com>
+%%
+%%-------------------------------------------------------------------
+%%
+%% This bibliography style file is intended for texts in ENGLISH
+%% This is a numerical citation style, and as such is standard LaTeX.
+%% It requires no extra package to interface to the main text.
+%% The form of the \bibitem entries is
+%%   \bibitem{key}...
+%% Usage of \cite is as follows:
+%%   \cite{key} ==>>          [#]
+%%   \cite[chap. 2]{key} ==>> [#, chap. 2]
+%% where # is a number determined by the ordering in the reference list.
+%% The order in the reference list is that by which the works were originally
+%%   cited in the text, or that in the database.
+ %
+%% To change the reference numbering system from [1] to 1,
+%% put the following code in the preamble:
+%% \makeatletter % Reference list option change
+%% \renewcommand\@biblabel[1]{#1} % from [1] to 1
+%% \makeatother %
+%%
+%%---------------------------------------------------------------------
 
+
+%% List of all possible fields
 ENTRY
   { address
     assignee     % for patents
@@ -32,7 +91,6 @@ ENTRY
     day
     edition
     editor
-    eid
     howpublished
     institution  % for technical reports
     inventor     % for patents
@@ -60,11 +118,11 @@ ENTRY
   }
   {}
   { label extra.label sort.label short.list }
+%% Declaration of integer variables
 INTEGERS { output.state before.all mid.sentence after.sentence after.block }
 STRINGS { urlintro eprinturl eprintprefix doiprefix doiurl } % urlbst...
 INTEGERS { hrefform addeprints adddoiresolver }
 % Following constants may be adjusted by hand, if desired
-
 FUNCTION {init.config.constants}
 {
   "Available from: " 'urlintro := % prefix before URL
@@ -76,16 +134,30 @@ FUNCTION {init.config.constants}
   #1 'adddoiresolver := % 0=no DOI resolver; 1=include it
   #0 'hrefform := % 0=no crossrefs; 1=hypertex xrefs; 2=hyperref refs
 }
-
+INTEGERS { 
+  bracket.state
+  outside.brackets
+  open.brackets
+  within.brackets
+  close.brackets
+}
+% ...urlbst to here
 FUNCTION {init.state.consts}
-{ #0 'before.all :=
+{ #0 'outside.brackets := % urlbst
+  #1 'open.brackets :=
+  #2 'within.brackets :=
+  #3 'close.brackets :=
+
+  #0 'before.all :=
   #1 'mid.sentence :=
   #2 'after.sentence :=
   #3 'after.block :=
 }
 %% Declaration of string variables
 STRINGS { s t}
-FUNCTION {output.nonnull}
+
+% urlbst
+FUNCTION {output.nonnull.original}
 { 's :=
   output.state mid.sentence =
     { ". " * write$ }
@@ -105,6 +177,62 @@ FUNCTION {output.nonnull}
   if$
   s
 }
+
+% urlbst...
+FUNCTION {output.nonnull}
+{ % Save the thing we've been asked to output
+  's :=
+  % If the bracket-state is close.brackets, then add a close-bracket to
+  % what is currently at the top of the stack, and set bracket.state
+  % to outside.brackets
+  bracket.state close.brackets =
+    { "]" *
+      outside.brackets 'bracket.state :=
+    }
+    'skip$
+  if$
+  bracket.state outside.brackets =
+    { % We're outside all brackets -- this is the normal situation.
+      % Write out what's currently at the top of the stack, using the
+      % original output.nonnull function.
+      s
+      output.nonnull.original
+    }
+    { % Still in brackets.  Add open-bracket or (continuation) comma, add the
+      % new text (in s) to the top of the stack, and move to the close-brackets
+      % state, ready for next time (unless inbrackets resets it).  If we come
+      % into this branch, then output.state is carefully undisturbed.
+      bracket.state open.brackets =
+        { " [" * }
+        { ", " * } % bracket.state will be within.brackets
+      if$ 
+      s * 
+      close.brackets 'bracket.state :=
+    }
+  if$
+}
+
+% Call this function just before adding something which should be presented in 
+% brackets.  bracket.state is handled specially within output.nonnull.
+FUNCTION {inbrackets}
+{ bracket.state close.brackets =
+    { within.brackets 'bracket.state := } % reset the state: not open nor closed
+    { open.brackets 'bracket.state := }
+  if$
+}
+
+FUNCTION {format.lastchecked}
+{ lastchecked empty$
+    { "" }
+    { updated empty$
+      { inbrackets "cited " lastchecked * }
+      { inbrackets "updated " updated * "; cited " * lastchecked * }
+    if$
+    }
+  if$
+}
+% ...urlbst to here
+
 FUNCTION {output}
 { duplicate$ empty$
     'pop$
@@ -120,16 +248,13 @@ FUNCTION {output.check}
   if$
 }
 
-%FUNCTION {fin.entry}
-%{ duplicate$ empty$
-%    'pop$
-%    'write$
-%  if$
-%  newline$
-%}
-%
 FUNCTION {fin.entry}
-{ add.period$
+{ 
+  bracket.state close.brackets = % urlbst
+    { "]" * }
+    'skip$
+  if$
+   add.period$
   write$
   newline$
 }
@@ -199,11 +324,49 @@ FUNCTION {not}
     { #1 }
   if$
 }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Logical 'and':
+% If the first 2 elements on the stack are A B
+% then this function does the following:
+%     push 'skip$
+%     push { pop$ #0 }
+% So now first 4 elements are
+%     { pop$ #0 } 'skip$ A B
+% The first 3 are popped and subjected to 'if' (B is on top of
+% the stack):
+% If A > 0 then 'skip$ is executed, else { pop$ #0 } is executed:
+%     if A > 0
+%     then (B stays on top of stack)
+%     else (B is popped and #0 is pushed)
+% So consider integers as logicals, where 1 = true and 0 = false,
+% then this does
+%     (if A then B else false)
+% which is a logical 'and'.
+
 FUNCTION {and}
 {   'skip$
     { pop$ #0 }
   if$
 }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Logical 'or':
+% If the first 2 elements on the stack are A B
+% then this function does the following:
+%     push { pop$ #1 }
+%     push 'skip$
+% So now first 4 elements are
+%     'skip$ { pop$ #1 } A B
+% The first 3 are popped and subjected to 'if' (B is on top of
+% the stack):
+% If A > 0 then { pop$ #1 } is executed, else 'skip$ is executed:
+%     if A > 0
+%     then (B is popped and #1 is pushed)
+%     else (B stays on top of stack)
+% So consider integers as logicals, where 1 = true and 0 = false,
+% then this does
+%     (if A then true else B)
+% which is a logical 'or'.
+
 FUNCTION {or}
 {   { pop$ #1 }
     'skip$
@@ -520,47 +683,6 @@ MACRO {nov} {"Nov."}
 
 MACRO {dec} {"Dec."}
 
-MACRO {acmcs} {"ACM Comput. Surv."}
-
-MACRO {acta} {"Acta Inf."}
-
-MACRO {cacm} {"Commun. ACM"}
-
-MACRO {ibmjrd} {"IBM J. Res. Dev."}
-
-MACRO {ibmsj} {"IBM Syst.~J."}
-
-MACRO {ieeese} {"IEEE Trans. Software Eng."}
-
-MACRO {ieeetc} {"IEEE Trans. Comput."}
-
-MACRO {ieeetcad}
- {"IEEE Trans. Comput. Aid. Des."}
-
-MACRO {ipl} {"Inf. Process. Lett."}
-
-MACRO {jacm} {"J.~ACM"}
-
-MACRO {jcss} {"J.~Comput. Syst. Sci."}
-
-MACRO {scp} {"Sci. Comput. Program."}
-
-MACRO {sicomp} {"SIAM J. Comput."}
-
-MACRO {tocs} {"ACM Trans. Comput. Syst."}
-
-MACRO {tods} {"ACM Trans. Database Syst."}
-
-MACRO {tog} {"ACM Trans. Graphic."}
-
-MACRO {toms} {"ACM Trans. Math. Software"}
-
-MACRO {toois} {"ACM Trans. Office Inf. Syst."}
-
-MACRO {toplas} {"ACM Trans. Progr. Lang. Syst."}
-
-MACRO {tcs} {"Theor. Comput. Sci."}
-
 FUNCTION {eng.ord}
 { duplicate$ "1" swap$ *
   #-2 #1 substring$ "1" =
@@ -619,10 +741,9 @@ FUNCTION {bibinfo.warn}
     }
   if$
 }
-INTEGERS { nameptr namesleft numnames }
-
 
 STRINGS  { bibinfo}
+INTEGERS { nameptr namesleft numnames }
 
 FUNCTION {format.names}
 { 'bibinfo :=
@@ -721,12 +842,6 @@ FUNCTION {format.names.ed}
 {
   format.names
 }
-FUNCTION {format.key}
-{ empty$
-    { key field.or.null }
-    { "" }
-  if$
-}
 
 FUNCTION {format.authors}
 { 
@@ -796,10 +911,6 @@ FUNCTION {format.inventors}
 
 FUNCTION {format.note}
 {
-  url empty$
-    'skip$
-    { "\urlprefix\url{" url * "}" * output }
-  if$
  note empty$
     { "" }
     { note #1 #1 substring$
@@ -1008,18 +1119,18 @@ FUNCTION {format.number.series}
 { volume empty$
     { number empty$
         { series field.or.null }
+        { series empty$
+            { number "number" bibinfo.check }
         { output.state mid.sentence =
             { bbl.number }
             { bbl.number capitalize }
           if$
           number tie.or.space.prefix "number" bibinfo.check * *
-          series empty$
-            { "there's a number but no series in " cite$ * warning$ }
-            { bbl.in space.word *
-              series "series" bibinfo.check *
-            }
-          if$
+          bbl.in space.word *
+          series "series" bibinfo.check *
         }
+      if$
+    }
       if$
     }
     { "" }
@@ -1493,6 +1604,7 @@ FUNCTION {misc}
     { format.type "type" output.check }
     %%{ inbrackets type output }
   if$
+  new.block
   format.publisher.address output
   format.date "year" output.check
   new.block
@@ -2064,13 +2176,6 @@ FUNCTION {begin.bib}
     { preamble$ write$ newline$ }
   if$
   "\begin{thebibliography}{" number.label int.to.str$ * "}" *
-  write$ newline$
-  "\providecommand{\natexlab}[1]{#1}"
-  write$ newline$
-  "\providecommand{\url}[1]{\texttt{#1}}"
-  write$ newline$
-%  "\providecommand{\urlprefix}{URL }"      ++++ EMPTIED by default
-  "\providecommand{\urlprefix}{}"
   write$ newline$
 }
 EXECUTE {begin.bib}
